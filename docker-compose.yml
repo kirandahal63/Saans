@@ -1,0 +1,94 @@
+version: "3.8"
+
+x-common-env: &common-env
+  SUPABASE_DB_URL: ${SUPABASE_DB_URL}
+
+services:
+
+  # --- Streaming broker ------------------------------------------------
+  # Local Redpanda by default (free, no signup). For the showcase demo,
+  # you can point KAFKA_BROKER/producer+processor at an Azure Event Hub's
+  # Kafka-compatible endpoint instead -- see README "Going fully cloud".
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- Ingestion ---------------------------------------------------------
+  producer:
+    build: ./producer
+    environment:
+      KAFKA_BROKER: redpanda:9092
+      KAFKA_TOPIC: air-quality-readings
+      POLL_SECONDS: "600"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  # --- Real-time processing + write path to Supabase ----------------------
+  processor:
+    build: ./processor
+    environment:
+      <<: *common-env
+      KAFKA_BROKER: redpanda:9092
+      KAFKA_TOPIC: air-quality-readings
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  # --- API + dashboard + LLM chatbot --------------------------------------
+  api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *common-env
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./dashboard:/dashboard:ro
+    depends_on:
+      - processor
+
+  # --- Orchestration: Airflow, custom image with Azure/Snowflake SDKs ----
+  airflow:
+    build: ./airflow
+    command: standalone
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      SUPABASE_DB_URL: ${SUPABASE_DB_URL}
+      AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING}
+      AZURE_CONTAINER_NAME: ${AZURE_CONTAINER_NAME}
+      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT}
+      SNOWFLAKE_USER: ${SNOWFLAKE_USER}
+      SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD}
+      DATABRICKS_HOST: ${DATABRICKS_HOST}
+      DATABRICKS_TOKEN: ${DATABRICKS_TOKEN}
+      DATABRICKS_JOB_ID: ${DATABRICKS_JOB_ID}
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow-data:/opt/airflow
+
+volumes:
+  airflow-data:

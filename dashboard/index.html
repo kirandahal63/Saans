@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saans — Kathmandu Valley air quality</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --bg: #0F2231;
+    --bg-deep: #0A1826;
+    --surface: #16324A;
+    --surface-hi: #1D3D57;
+    --border: #2A4A66;
+    --text: #F3F6F5;
+    --text-muted: #9FB4C4;
+    --good: #6FA986;
+    --moderate: #E3A857;
+    --sensitive: #E38257;
+    --unhealthy: #D9614F;
+    --very-unhealthy: #B33F3F;
+    --hazardous: #7A2323;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+  }
+  .skyline {
+    width: 100%;
+    display: block;
+    background: linear-gradient(180deg, var(--bg-deep) 0%, var(--bg) 100%);
+  }
+  header {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px 8px;
+  }
+  .eyebrow {
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0 0 6px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 40px;
+    margin: 0 0 6px;
+  }
+  .subtitle { color: var(--text-muted); font-size: 15px; margin: 0 0 28px; max-width: 640px; }
+
+  .hero {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px 32px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+  .breath-ring {
+    position: relative;
+    width: 160px;
+    height: 160px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .breath-ring .pulse {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--good);
+    animation: breathe 4s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(0.85); opacity: 0.7; }
+    50% { transform: scale(1.05); opacity: 0.15; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .breath-ring .pulse { animation: none; }
+  }
+  .breath-ring .core {
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    background: var(--surface-hi);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .breath-ring .aqi-number { font-family: 'Fraunces', serif; font-size: 40px; font-weight: 500; line-height: 1; }
+  .breath-ring .aqi-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+  .hero-text h2 { font-family: 'Fraunces', serif; font-weight: 500; font-size: 22px; margin: 0 0 6px; }
+  .hero-text p { color: var(--text-muted); font-size: 14px; margin: 0; max-width: 480px; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 0 24px 60px; }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 36px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--good);
+    border-radius: 12px;
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .card:hover { transform: translateY(-2px); }
+  .card.selected { border-color: var(--text-muted); }
+  .card .loc-name { font-size: 14px; font-weight: 600; text-transform: capitalize; margin-bottom: 6px; }
+  .card .loc-aqi { font-family: 'Fraunces', serif; font-size: 28px; font-weight: 500; }
+  .card .loc-cat { font-size: 12px; color: var(--text-muted); text-transform: capitalize; margin-top: 2px; }
+
+  section.panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  section.panel h3 {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 18px;
+    margin: 0 0 16px;
+  }
+  canvas#trendChart { max-height: 260px; }
+
+  .alerts-list { display: flex; flex-direction: column; gap: 10px; }
+  .alert-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    padding: 10px 12px;
+    background: var(--bg-deep);
+    border-radius: 8px;
+    border-left: 3px solid var(--unhealthy);
+  }
+  .alert-row .msg { color: var(--text); }
+  .alert-row .time { color: var(--text-muted); white-space: nowrap; }
+  .empty { color: var(--text-muted); font-size: 13px; }
+
+  .chat-log { display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow-y: auto; margin-bottom: 14px; }
+  .chat-msg { padding: 10px 14px; border-radius: 10px; font-size: 14px; line-height: 1.5; max-width: 85%; }
+  .chat-msg.user { background: var(--surface-hi); align-self: flex-end; }
+  .chat-msg.bot { background: var(--bg-deep); align-self: flex-start; border: 1px solid var(--border); }
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row input {
+    flex: 1;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .chat-input-row button {
+    background: var(--good);
+    color: var(--bg-deep);
+    border: none;
+    border-radius: 10px;
+    padding: 0 20px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .hint { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+  footer { text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px 24px 40px; }
+</style>
+</head>
+<body>
+
+<svg class="skyline" viewBox="0 0 1100 140" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <polygon points="0,140 0,90 80,40 160,80 240,30 320,70 400,20 470,60 540,15 620,55 700,25 780,65 860,35 940,75 1020,45 1100,85 1100,140" fill="#0D2233"/>
+  <polygon points="0,140 0,110 100,70 190,100 280,60 360,95 450,55 530,90 610,60 700,95 790,65 880,100 970,70 1060,105 1100,95 1100,140" fill="#0A1B29"/>
+</svg>
+
+<header>
+  <p class="eyebrow">Saans · सांस · breath</p>
+  <h1>Kathmandu Valley air quality, live</h1>
+  <p class="subtitle">Streaming readings from monitoring points across the valley, updated continuously. Ask the advisor below whether it's safe to be outside right now.</p>
+</header>
+
+<div class="hero">
+  <div class="breath-ring">
+    <div class="pulse" id="pulseRing"></div>
+    <div class="core">
+      <div class="aqi-number" id="heroAqi">--</div>
+      <div class="aqi-label">valley avg AQI</div>
+    </div>
+  </div>
+  <div class="hero-text">
+    <h2 id="heroHeadline">Reading live data...</h2>
+    <p id="heroSub">Waiting for the pipeline to report the first readings. If this doesn't update within a minute, check that the producer and processor containers are running.</p>
+  </div>
+</div>
+
+<main>
+  <div class="cards" id="cardGrid"></div>
+
+  <section class="panel">
+    <h3 id="chartTitle">24-hour trend</h3>
+    <canvas id="trendChart"></canvas>
+  </section>
+
+  <section class="panel">
+    <h3>Recent alerts</h3>
+    <div class="alerts-list" id="alertsList"><p class="empty">No alerts yet.</p></div>
+  </section>
+
+  <section class="panel">
+    <h3>Ask the health advisor</h3>
+    <div class="chat-log" id="chatLog"></div>
+    <div class="chat-input-row">
+      <input type="text" id="chatInput" placeholder="Is it safe to jog in Patan this evening?">
+      <button id="chatSend">Ask</button>
+    </div>
+    <p class="hint">Answers are grounded in the live reading for the selected location plus WHO-based guidance -- not a general chatbot.</p>
+  </section>
+</main>
+
+<footer>Saans — built on live Open-Meteo data, streamed through Kafka, processed in real time, stored in Postgres.</footer>
+
+<script>
+const API = '';
+let selectedLocation = null;
+let trendChart = null;
+
+const categoryColor = {
+  good: 'var(--good)',
+  moderate: 'var(--moderate)',
+  unhealthy_sensitive: 'var(--sensitive)',
+  unhealthy: 'var(--unhealthy)',
+  very_unhealthy: 'var(--very-unhealthy)',
+  hazardous: 'var(--hazardous)',
+  unknown: 'var(--text-muted)',
+};
+
+async function fetchJSON(path) {
+  const res = await fetch(API + path);
+  if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  return res.json();
+}
+
+function categoryLabel(cat) {
+  return (cat || 'unknown').replace(/_/g, ' ');
+}
+
+async function refreshLatest() {
+  let data;
+  try {
+    data = await fetchJSON('/api/latest');
+  } catch (e) {
+    document.getElementById('heroHeadline').textContent = 'Waiting for data...';
+    return;
+  }
+  if (!data.length) return;
+
+  if (!selectedLocation) selectedLocation = data[0].location;
+
+  const grid = document.getElementById('cardGrid');
+  grid.innerHTML = '';
+  let sum = 0, count = 0;
+  data.forEach(row => {
+    if (row.us_aqi != null) { sum += row.us_aqi; count++; }
+    const card = document.createElement('div');
+    card.className = 'card' + (row.location === selectedLocation ? ' selected' : '');
+    card.style.borderLeftColor = categoryColor[row.aqi_category] || categoryColor.unknown;
+    card.innerHTML = `
+      <div class="loc-name">${row.location}</div>
+      <div class="loc-aqi">${row.us_aqi ?? '--'}</div>
+      <div class="loc-cat">${categoryLabel(row.aqi_category)}</div>
+    `;
+    card.onclick = () => { selectedLocation = row.location; refreshLatest(); refreshTrend(); };
+    grid.appendChild(card);
+  });
+
+  const avg = count ? Math.round(sum / count) : null;
+  document.getElementById('heroAqi').textContent = avg ?? '--';
+  const worst = [...data].sort((a, b) => (b.us_aqi ?? 0) - (a.us_aqi ?? 0))[0];
+  document.getElementById('heroHeadline').textContent = avg == null
+    ? 'Waiting for data...'
+    : avg <= 50 ? 'Air quality is good across the valley'
+    : avg <= 100 ? 'Air quality is moderate today'
+    : 'Air quality is unhealthy in parts of the valley';
+  document.getElementById('heroSub').textContent = worst
+    ? `Highest reading right now: ${worst.location} at AQI ${worst.us_aqi} (${categoryLabel(worst.aqi_category)}).`
+    : '';
+  document.getElementById('pulseRing').style.borderColor = categoryColor[worst?.aqi_category] || categoryColor.good;
+}
+
+async function refreshTrend() {
+  if (!selectedLocation) return;
+  document.getElementById('chartTitle').textContent = `24-hour trend — ${selectedLocation}`;
+  let rows;
+  try {
+    rows = await fetchJSON(`/api/history/${selectedLocation}?hours=24`);
+  } catch (e) {
+    rows = [];
+  }
+  const labels = rows.map(r => new Date(r.recorded_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+  const values = rows.map(r => r.us_aqi);
+
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'US AQI',
+        data: values,
+        borderColor: '#6FA986',
+        backgroundColor: 'rgba(111,169,134,0.15)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#9FB4C4' }, grid: { color: '#2A4A66' } },
+        y: { ticks: { color: '#9FB4C4' }, grid: { color: '#2A4A66' } },
+      },
+    },
+  });
+}
+
+async function refreshAlerts() {
+  let rows;
+  try {
+    rows = await fetchJSON('/api/alerts?limit=10');
+  } catch (e) {
+    rows = [];
+  }
+  const list = document.getElementById('alertsList');
+  if (!rows.length) {
+    list.innerHTML = '<p class="empty">No alerts yet.</p>';
+    return;
+  }
+  list.innerHTML = rows.map(a => `
+    <div class="alert-row">
+      <span class="msg"><strong>${a.location}</strong> — ${a.message}</span>
+      <span class="time">${new Date(a.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+    </div>
+  `).join('');
+}
+
+function addChatMessage(text, who) {
+  const log = document.getElementById('chatLog');
+  const el = document.createElement('div');
+  el.className = `chat-msg ${who}`;
+  el.textContent = text;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendChat() {
+
+  const input = document.getElementById('chatInput');
+  const question = input.value.trim();
+  if (!question) return;
+  addChatMessage(question, 'user');
+  input.value = '';
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, location: selectedLocation }),
+    });
+    const data = await res.json();
+    addChatMessage(data.answer, 'bot');
+  } catch (e) {
+    addChatMessage('Could not reach the advisor right now.', 'bot');
+  }
+}
+
+document.getElementById('chatSend').onclick = sendChat;
+document.getElementById('chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendChat();
+});
+
+async function refreshForecast() {
+  if (!selectedLocation) return;
+  try {
+    const f = await fetchJSON(`/api/forecast/${selectedLocation}`);
+    document.getElementById('heroSub').textContent += ` Forecast: AQI ${Math.round(f.predicted_aqi)} by ${new Date(f.predicted_for).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}.`;
+  } catch (e) {
+    // no forecast yet -- fine, Databricks job may not have run yet
+  }
+}
+
+async function tick() {
+  await refreshLatest();
+  await refreshTrend();
+  await refreshAlerts();
+  await refreshForecast();
+}
+
+async function setupRealtime() {
+  let cfg;
+  try {
+    cfg = await fetchJSON('/api/config');
+  } catch (e) {
+    console.warn('Could not load Supabase config, falling back to polling only');
+    return;
+  }
+  if (!cfg.supabase_url || !cfg.supabase_anon_key) return;
+
+  const supabase = window.supabase.createClient(cfg.supabase_url, cfg.supabase_anon_key);
+
+  // Push-based updates: fires the instant the processor inserts a row,
+  // instead of waiting for the next poll.
+  supabase
+    .channel('saans-live')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'readings' }, () => {
+      refreshLatest();
+      refreshTrend();
+    })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts' }, () => {
+      refreshAlerts();
+    })
+    .subscribe();
+
+  console.log('Supabase Realtime subscription active');
+}
+
+tick();
+setupRealtime();
+// Safety-net poll in case a realtime event is missed (e.g. brief disconnect).
+setInterval(tick, 120000);
+</script>
+</body>
+</html>

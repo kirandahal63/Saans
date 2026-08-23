@@ -1,0 +1,22 @@
+# Environment variables
+.env
+.env.*
+
+
+# Keep the example environment file
+!.env.example
+
+
+# Python virtual environment
+venv/
+.venv/
+
+# Windows Zone.Identifier files
+*:Zone.Identifier
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Airflow
+airflow/logs/
