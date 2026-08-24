@@ -26,7 +26,10 @@ POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "600"))  # 10 minutes by defau
 # only place you need to touch to expand coverage.
 LOCATIONS = {
     "patan":      (27.6588, 85.3247),
+    "budhanilkantha": (27.7770, 85.3624),
+    "hattiban": (27.65071, 85.33173),
     "thamel":     (27.7154, 85.3123),
+    "gongabu": (27.7356, 85.3096),
     "bhaktapur":  (27.6710, 85.4298),
     "kirtipur":   (27.6784, 85.2775),
     "boudha":     (27.7215, 85.3620),

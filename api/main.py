@@ -129,40 +129,53 @@ class ChatRequest(BaseModel):
     location: str | None = None
 
 
-SYSTEM_PROMPT = """You are the Saans health advisor for Kathmandu Valley air quality.
-Answer ONLY using the CONTEXT provided below -- do not use outside knowledge about
-air quality guidance beyond what's given. If the context doesn't cover the question,
-say so honestly rather than guessing. Keep answers to 2-4 sentences, direct and
-practical. You are not a doctor -- for anything beyond general air-quality guidance,
-suggest the person speak with a healthcare provider."""
+SYSTEM_PROMPT = """You are Saans Health Advisor, a helpful and friendly AI assistant for Kathmandu Valley air quality.
+You should use the provided CONTEXT (which includes real-time readings and health guidelines) to answer specific questions about current air quality and health guidance.
+Feel free to engage in general friendly conversation (greetings, identity) or answer general AQI knowledge questions (such as what the maximum AQI is) using your general knowledge, but keep responses focused, helpful, and concise (2-4 sentences).
+When answering questions about whether it is safe for someone with a health condition (like asthma or respiratory issues) to go outside:
+- Remind them that asthmatics and sensitive groups should limit/avoid outdoor exertion if the AQI is above 100.
+- Compare the current AQI of the locations in the context, and suggest a cleaner/better location to go to if one is available and significantly safer.
+- Always include a friendly, conversational touch while reminding them you are not a doctor and they should speak with a healthcare provider for medical concerns."""
 
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
     """Retrieval-grounded chatbot: pgvector search over the health-guidance
-    knowledge base + the live reading for the mentioned location, sent to
-    Claude as context. Falls back to a plain templated answer if no
-    ANTHROPIC_API_KEY is configured, so the project still runs without one."""
+    knowledge base + the live readings, sent to the LLM as context. Falls back
+    to a plain templated answer if no LLM provider is configured."""
     matches = rag.search(req.question, top_k=3)
 
-    reading = None
-    if req.location:
+    all_readings = []
+    try:
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT location, us_aqi, aqi_category, recorded_at
-                FROM readings WHERE location = %s ORDER BY recorded_at DESC LIMIT 1
-                """,
-                (req.location,),
+                SELECT DISTINCT ON (location)
+                    location, us_aqi, aqi_category, recorded_at
+                FROM readings
+                ORDER BY location, recorded_at DESC
+                """
             )
-            reading = cur.fetchone()
+            all_readings = cur.fetchall()
+    except Exception as e:
+        pass
+
+    reading = None
+    if req.location:
+        for r in all_readings:
+            if r['location'].lower() == req.location.lower():
+                reading = r
+                break
 
     context_lines = []
-    if reading:
-        context_lines.append(
-            f"Current AQI in {reading['location']}: {reading['us_aqi']} "
-            f"({reading['aqi_category'].replace('_', ' ')}), recorded at {reading['recorded_at']}."
-        )
+    if all_readings:
+        context_lines.append("Current AQI readings across Kathmandu Valley:")
+        for r in all_readings:
+            context_lines.append(
+                f"- {r['location']}: AQI is {r['us_aqi']} ({r['aqi_category'].replace('_', ' ')}), recorded at {r['recorded_at']}."
+            )
+        context_lines.append("")
+
     for m in matches:
         context_lines.append(f"{m['heading']}: {m['text']}")
     context = "\n".join(context_lines) if context_lines else "No relevant data found."
