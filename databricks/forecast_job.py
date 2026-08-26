@@ -7,18 +7,6 @@ full historical archive from Snowflake into a Spark DataFrame, engineers
 rolling features per location, trains a gradient-boosted regressor to
 predict each location's AQI one hour ahead, and writes the predictions
 back to Snowflake for the dashboard/API to serve.
-
-HOW TO RUN THIS ON DATABRICKS:
-  1. Databricks workspace -> Workspace -> Import -> upload this file
-     (Databricks recognizes the "# Databricks notebook source" header
-     and imports it as a notebook with cells split on "# COMMAND ----------").
-  2. Cluster: any small cluster works (a single-node "Personal Compute"
-     cluster is enough for this data volume). Runtime 14.x+ recommended.
-  3. Set the four SNOWFLAKE_* values below via cluster environment
-     variables or Databricks secrets (recommended) rather than hardcoding.
-  4. Attach this notebook to the cluster and Run All -- or turn it into
-     a scheduled Databricks Job (Workflows -> Create Job -> Notebook task)
-     and trigger it from Airflow (see airflow/dags/databricks_forecast_dag.py).
 """
 
 # COMMAND ----------
@@ -37,9 +25,9 @@ from pyspark.sql.window import Window
 # Prefer Databricks secrets over plain env vars for real credentials:
 #   dbutils.secrets.get(scope="saans", key="snowflake_password")
 SNOWFLAKE_OPTIONS = {
-    "sfURL": os.environ.get("SNOWFLAKE_ACCOUNT", "VPSREHI-PF65358.snowflakecomputing.com"),
-    "sfUser": os.environ.get("SNOWFLAKE_USER", "Saans"),
-    "sfPassword": os.environ.get("SNOWFLAKE_PASSWORD", "p9sDeRz8ufxY3HL"),
+    "sfURL": os.environ["SNOWFLAKE_ACCOUNT"],
+    "sfUser": os.environ["SNOWFLAKE_USER"],
+    "sfPassword": os.environ["SNOWFLAKE_PASSWORD"],
     "sfDatabase": "SAANS",
     "sfSchema": "CORE",
     "sfWarehouse": "SAANS_WH",
@@ -139,23 +127,3 @@ forecast.show(truncate=False)
 )
 
 print("Forecast written to Snowflake: AQI_PREDICTIONS_ARCHIVE")
-
-# COMMAND ----------
-
-# --- 6. Optional: also push predictions to Supabase so the live dashboard --
-# can show them without waiting on the next Snowflake sync. Uncomment and
-# set SUPABASE_DB_URL as a cluster env var / secret to enable.
-#
-# import psycopg2
-# rows = forecast.collect()
-# conn = psycopg2.connect(os.environ["SUPABASE_DB_URL"])
-# cur = conn.cursor()
-# for r in rows:
-#     cur.execute(
-#         "insert into aqi_predictions (location, predicted_for, predicted_aqi, model_version) "
-#         "values (%s, %s, %s, %s)",
-#         (r["location"], r["predicted_for"], r["predicted_aqi"], r["model_version"]),
-#     )
-# conn.commit()
-# cur.close()
-# conn.close()
